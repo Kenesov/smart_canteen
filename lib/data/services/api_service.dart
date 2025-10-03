@@ -109,7 +109,6 @@ class ApiService {
       final uploadTime = DateTime.now().difference(startTime).inMilliseconds;
       Logger.info('⏱️ FormData prepared in ${uploadTime}ms');
 
-      // ✅ Token olish
       final token = await SecureStorage.getAccessToken();
 
       final response = await _retryRequest(
@@ -119,12 +118,12 @@ class ApiService {
           options: Options(
             headers: {
               'Accept': 'application/json',
-              'Authorization': 'Bearer $token', // ✅ token qo‘shildi
+              'Authorization': 'Bearer $token',
             },
             contentType: 'multipart/form-data',
           ),
         ),
-        maxAttempts: 2, // Face recognition uchun kamroq retry
+        maxAttempts: 2,
       );
 
       final totalTime = DateTime.now().difference(startTime).inMilliseconds;
@@ -141,7 +140,6 @@ class ApiService {
         });
       }
 
-      // Xatolikni handle qilish
       return Result.failure(
         ApiError.fromResponse(response.data, response.statusCode),
       );
@@ -153,14 +151,77 @@ class ApiService {
     }
   }
 
+  /// QR kod bilan ovqat qaydi
+  Future<Result<Map<String, dynamic>, ApiError>> logMealByQr(
+      String qrToken,
+      String mealType,
+      ) async {
+    try {
+      final startTime = DateTime.now();
+      Logger.info('⏱️ QR code API call started: $mealType');
 
-  /// Bugungi ovqatlar ro'yxati
+      final apiMealType = AppConstants.mealTypeMap[mealType] ?? 'LUNCH';
+
+      final token = await SecureStorage.getAccessToken();
+
+      final response = await _retryRequest(
+            () => _dio.post(
+          AppConstants.logMealByQrEndpoint,
+          data: {
+            'qr_token': qrToken,
+            'meal_type': apiMealType,
+          },
+          options: Options(
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            contentType: 'application/json',
+          ),
+        ),
+        maxAttempts: 2,
+      );
+
+      final totalTime = DateTime.now().difference(startTime).inMilliseconds;
+      Logger.success('⏱️ QR code verification completed in ${totalTime}ms');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+
+        // Student ma'lumotlarini olish
+        final student = data['student'];
+        final studentName = student != null
+            ? '${student['first_name'] ?? ''} ${student['last_name'] ?? ''}'.trim()
+            : 'Student';
+
+        final studentImage = student?['image_url']?.toString() ??
+            student?['image']?.toString();
+
+        return Result.success({
+          'success': data['success'] ?? true,
+          'message': data['message'] ?? AppConstants.errorMessages['SUCCESS'],
+          'student_name': studentName,
+          'student_image': studentImage,
+          'data': data,
+        });
+      }
+
+      return Result.failure(
+        ApiError.fromResponse(response.data, response.statusCode),
+      );
+    } on DioException catch (e) {
+      return Result.failure(_handleDioError(e));
+    } catch (e, stackTrace) {
+      Logger.error('Unexpected QR code error: $e\n$stackTrace');
+      return Result.failure(ApiError.network('Kutilmagan xatolik'));
+    }
+  }
+
   /// Bugungi ovqatlar ro'yxati
   Future<Result<List<MealLog>, ApiError>> getTodayMealLogs() async {
     try {
       Logger.info('Fetching today meal logs');
 
-      // 🔑 Token olish
       final token = await SecureStorage.getAccessToken();
 
       final response = await _retryRequest(
@@ -204,7 +265,6 @@ class ApiService {
   }
 
   /// Kun bo'yicha ovqatlar ro'yxati
-  /// Kun bo'yicha ovqatlar ro'yxati
   Future<Result<List<MealLog>, ApiError>> getMealsByDate({
     required DateTime date,
     String? mealType,
@@ -220,7 +280,6 @@ class ApiService {
         queryParams['meal_type'] = mealType;
       }
 
-      // 🔑 Token olish
       final token = await SecureStorage.getAccessToken();
 
       final response = await _retryRequest(
@@ -374,7 +433,6 @@ class ApiService {
   bool _shouldRetry(DioException error, int attempts, int maxAttempts) {
     if (attempts >= maxAttempts) return false;
 
-    // Faqat network va timeout xatoliklarda retry qilamiz
     return error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.sendTimeout ||
         error.type == DioExceptionType.receiveTimeout ||
@@ -412,18 +470,5 @@ class ApiService {
       default:
         return ApiError.network('Serverga ulanishda xatolik');
     }
-  }
-
-  /// Image compression (ixtiyoriy optimizatsiya)
-  Future<Uint8List> _compressImage(Uint8List bytes) async {
-    // Agar rasmning hajmi 1MB dan kichik bo'lsa, compress qilmaslik
-    if (bytes.length < 1024 * 1024) {
-      return bytes;
-    }
-
-    // TODO: image package dan foydalanib compress qilish
-    // Hozircha oddiy return qilamiz
-    Logger.info('Image size: ${(bytes.length / 1024).toStringAsFixed(2)} KB');
-    return bytes;
   }
 }

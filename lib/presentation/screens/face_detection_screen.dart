@@ -9,6 +9,8 @@ import '../../core/utils/logger.dart';
 import '../../data/services/api_service.dart';
 import '../../data/services/audio_service.dart';
 import '../widgets/face_overlay.dart';
+import '../widgets/scan_mode_menu.dart'; // Menu widget
+import 'qr_scanner_screen.dart'; // QR screen import
 
 class FaceDetectionScreen extends StatefulWidget {
   final CameraDescription camera;
@@ -159,7 +161,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     bool readyToCapture = true;
     String reason = 'perfect';
 
-    // Distance check
     final faceArea = boundingBox.width * boundingBox.height;
     final imageArea = imageWidth * imageHeight;
     final faceRatio = faceArea / imageArea;
@@ -172,7 +173,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
       reason = 'too_close';
     }
 
-    // Center check
     final faceCenterX = boundingBox.center.dx;
     final faceCenterY = boundingBox.center.dy;
     final xOffset = (faceCenterX - imageWidth / 2).abs() / imageWidth;
@@ -184,7 +184,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
       reason = 'not_centered';
     }
 
-    // Head angle check
     final headEulerAngleX = face.headEulerAngleX?.abs() ?? 0;
     final headEulerAngleY = face.headEulerAngleY?.abs() ?? 0;
     final headEulerAngleZ = face.headEulerAngleZ?.abs() ?? 0;
@@ -196,7 +195,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
       reason = 'head_tilted';
     }
 
-    // Eye check
     final leftEyeOpen = face.leftEyeOpenProbability;
     final rightEyeOpen = face.rightEyeOpenProbability;
 
@@ -215,7 +213,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     };
   }
 
-  // 👇 qo‘shib qo‘ying
   bool _canCapture() {
     if (_lastCaptureTime == null) return true;
     return DateTime.now().difference(_lastCaptureTime!) >
@@ -231,16 +228,14 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     try {
       Logger.info('Capturing image with takePicture');
 
-      // 📸 Kamera orqali rasm olish
       final file = await _controller!.takePicture();
       final jpegBytes = await file.readAsBytes();
 
       Logger.success(
         'Image captured: ${jpegBytes.length} bytes '
-        '(${(jpegBytes.length / 1024).toStringAsFixed(2)} KB)',
+            '(${(jpegBytes.length / 1024).toStringAsFixed(2)} KB)',
       );
 
-      // 🔗 Backendga yuborish
       final result = await _apiService.logMealByFace(
         jpegBytes,
         widget.mealType,
@@ -248,7 +243,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
 
       if (!mounted) return;
 
-      // 🔊 Natija bilan ishlash
       result.when(
         success: (data) async {
           setState(() {
@@ -271,7 +265,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         },
       );
 
-      // ⏳ 3–4 soniyadan keyin statusni tozalash
       await Future.delayed(const Duration(seconds: 3));
       if (mounted) {
         setState(() {
@@ -301,6 +294,20 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         setState(() => _isProcessing = false);
       }
     }
+  }
+
+  // QR screenga o'tish
+  void _navigateToQrScreen() {
+    Logger.info('Switching to QR Scanner');
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => QrScannerScreen(
+          mealType: widget.mealType,
+          camera: widget.camera, // Kamerani uzatish
+        ),
+      ),
+    );
   }
 
   InputImage? _convertCameraImage(CameraImage image) {
@@ -377,6 +384,17 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
                 Logger.info('Back button pressed');
                 Navigator.pop(context);
               },
+            ),
+          ),
+
+          // Menu button (Face/QR toggle)
+          Positioned(
+            top: 40,
+            right: 20,
+            child: ScanModeMenu(
+              currentMode: ScanMode.face,
+              onFaceTap: () {}, // Allaqachon Face ekranida
+              onQrTap: _navigateToQrScreen,
             ),
           ),
 

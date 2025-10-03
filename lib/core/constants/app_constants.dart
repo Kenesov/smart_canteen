@@ -6,6 +6,7 @@ class AppConstants {
   static final String baseUrl = dotenv.env['BASE_URL'] ?? 'https://default-url.com';
   static const String loginEndpoint = '/api/login/';
   static const String logMealByFaceEndpoint = '/api/meals/log-by-face/';
+  static const String logMealByQrEndpoint = '/api/meals/log-by-qr/'; // QR endpoint
   static const String todayMealsEndpoint = '/api/meals/today/';
   static const String mealsByDateEndpoint = '/api/meals/by-date/';
 
@@ -49,14 +50,14 @@ class AppConstants {
   static const int maxRetryAttempts = 3;
   static const Duration retryDelay = Duration(seconds: 2);
 
-  static const double minFaceRatio = 0.07;   // yuz kichkina bo‘lsa ham qabul qilsin
-  static const double maxFaceRatio = 0.75;   // biroz yaqin ham bo‘lsa qabul qilsin
-  static const double centerThreshold = 0.45; // yuz o‘rtadan 45% chetlashsa ham bo‘lsin
+  // Face detection settings
+  static const double minFaceRatio = 0.07;
+  static const double maxFaceRatio = 0.75;
+  static const double centerThreshold = 0.45;
   static const double maxHeadAngleX = 35.0;
   static const double maxHeadAngleY = 40.0;
   static const double maxHeadAngleZ = 35.0;
-  static const double minEyeOpenProbability = 0.3; // yarim ochiq ko‘z ham o‘tsin
-
+  static const double minEyeOpenProbability = 0.3;
 
   // Backend error messages mapping
   static const Map<String, String> errorMessages = {
@@ -66,6 +67,8 @@ class AppConstants {
     'NOT_ACTIVE': 'Talaba faol emas',
     'NOT_ENROLLED': 'Ro\'yxatdan o\'tmagan',
     'ALREADY_LOGGED': 'Allaqachon belgilangan',
+    'INVALID_QR': 'QR kod noto\'g\'ri',
+    'QR_EXPIRED': 'QR kod muddati tugagan',
     'SUCCESS': 'Muvaffaqiyatli qayd qilindi',
     'ERROR': 'Xatolik yuz berdi',
   };
