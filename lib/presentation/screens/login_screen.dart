@@ -16,20 +16,22 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
   final _apiService = ApiService();
-  bool _isLoading = false;
-  String? _errorMessage;
 
-  void _login() async {
-    if (_usernameController.text.isEmpty || _passwordController.text.isEmpty) {
-      setState(() => _errorMessage = 'Login va parolni kiriting');
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  Future<void> _login() async {
+    // Validation
+    if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    // Keyboard ni yopish
+    FocusScope.of(context).unfocus();
+
+    setState(() => _isLoading = true);
 
     final result = await _apiService.login(
       _usernameController.text.trim(),
@@ -38,19 +40,41 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
-    if (result['success'] == true) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => HomeScreen(camera: widget.camera),
-        ),
-      );
-    } else {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = result['message'] ?? 'Login yoki parol xato';
-      });
-    }
+    result.when(
+      success: (data) {
+        Logger.success('Login successful');
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(camera: widget.camera),
+          ),
+        );
+      },
+      failure: (error) {
+        setState(() => _isLoading = false);
+
+        Logger.error('Login failed: ${error.message}');
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text(error.message)),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -71,124 +95,172 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    AppConstants.logoPath,
-                    width: 180,
-                    height: 180,
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'OSHXONA TIZIMI',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 2,
+              physics: const BouncingScrollPhysics(),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Logo
+                    Hero(
+                      tag: 'logo',
+                      child: Image.asset(
+                        AppConstants.logoPath,
+                        width: 180,
+                        height: 180,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 50),
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 20,
-                          spreadRadius: 5,
-                        ),
-                      ],
+                    const SizedBox(height: 20),
+
+                    // Title
+                    const Text(
+                      'OSHXONA TIZIMI',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 2,
+                      ),
                     ),
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: _usernameController,
-                          decoration: InputDecoration(
-                            labelText: 'Login',
-                            prefixIcon: Icon(
-                              Icons.person,
-                              color: AppConstants.primaryColor,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
+                    const SizedBox(height: 50),
+
+                    // Login form card
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 20,
+                            spreadRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          // Username field
+                          TextFormField(
+                            controller: _usernameController,
+                            enabled: !_isLoading,
+                            decoration: InputDecoration(
+                              labelText: 'Login',
+                              hintText: 'Loginingizni kiriting',
+                              prefixIcon: Icon(
+                                Icons.person,
                                 color: AppConstants.primaryColor,
-                                width: 2,
                               ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            labelText: 'Parol',
-                            prefixIcon: Icon(
-                              Icons.lock,
-                              color: AppConstants.primaryColor,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: AppConstants.primaryColor,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          onSubmitted: (_) => _login(),
-                        ),
-                        if (_errorMessage != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Text(
-                              _errorMessage!,
-                              style: const TextStyle(
-                                color: Colors.red,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        const SizedBox(height: 30),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _login,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppConstants.primaryColor,
-                              shape: RoundedRectangleBorder(
+                              border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: AppConstants.primaryColor,
+                                  width: 2,
+                                ),
+                              ),
                             ),
-                            child: _isLoading
-                                ? const CircularProgressIndicator(
-                              color: Colors.white,
-                            )
-                                : const Text(
-                              'KIRISH',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Loginni kiriting';
+                              }
+                              return null;
+                            },
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Password field
+                          TextFormField(
+                            controller: _passwordController,
+                            enabled: !_isLoading,
+                            obscureText: _obscurePassword,
+                            decoration: InputDecoration(
+                              labelText: 'Parol',
+                              hintText: 'Parolingizni kiriting',
+                              prefixIcon: Icon(
+                                Icons.lock,
+                                color: AppConstants.primaryColor,
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                  color: Colors.grey,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: AppConstants.primaryColor,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Parolni kiriting';
+                              }
+                              if (value.length < 3) {
+                                return 'Parol juda qisqa';
+                              }
+                              return null;
+                            },
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _login(),
+                          ),
+                          const SizedBox(height: 30),
+
+                          // Login button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                              onPressed: _isLoading ? null : _login,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppConstants.primaryColor,
+                                disabledBackgroundColor: Colors.grey[300],
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 3,
+                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                                  : const Text(
+                                'KIRISH',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: 1.2,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

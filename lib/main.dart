@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'presentation/screens/splash_screen.dart';
 
 void main() async {
@@ -10,6 +12,8 @@ void main() async {
         (camera) => camera.lensDirection == CameraLensDirection.front,
     orElse: () => cameras.first,
   );
+  await WakelockPlus.enable();
+  await dotenv.load(fileName: ".env");
 
   runApp(MyApp(camera: frontCamera));
 }

@@ -1,9 +1,10 @@
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart' show MediaType;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/logger.dart';
+import '../../core/utils/result.dart';
+import '../../core/utils/secure_storage.dart';
 import '../models/meal_log.dart';
 
 class ApiService {
@@ -14,42 +15,41 @@ class ApiService {
       baseUrl: AppConstants.baseUrl,
       connectTimeout: AppConstants.connectionTimeout,
       receiveTimeout: AppConstants.receiveTimeout,
+      validateStatus: (status) => status != null && status < 500,
     ));
 
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
-        final token = await _getToken();
+        final token = await SecureStorage.getAccessToken();
         if (token != null) {
           options.headers['Authorization'] = 'Bearer $token';
         }
+        Logger.api(options.method, options.path);
         return handler.next(options);
       },
+      onResponse: (response, handler) {
+        Logger.api(
+          response.requestOptions.method,
+          response.requestOptions.path,
+          statusCode: response.statusCode,
+        );
+        return handler.next(response);
+      },
       onError: (error, handler) {
-        Logger.error('API Error: ${error.message}');
+        Logger.error(
+          'API Error: ${error.message}',
+          tag: 'API [${error.requestOptions.path}]',
+        );
         return handler.next(error);
       },
     ));
   }
 
-  Future<String?> _getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(AppConstants.accessTokenKey);
-  }
-
-  Future<void> _saveTokens(String accessToken, String refreshToken) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConstants.accessTokenKey, accessToken);
-    await prefs.setString(AppConstants.refreshTokenKey, refreshToken);
-    await prefs.setBool(AppConstants.isLoggedInKey, true);
-    Logger.success('Tokens saved');
-  }
-
-  Future<bool> isLoggedIn() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(AppConstants.isLoggedInKey) ?? false;
-  }
-
-  Future<Map<String, dynamic>> login(String username, String password) async {
+  /// Login - Result pattern bilan
+  Future<Result<Map<String, dynamic>, ApiError>> login(
+      String username,
+      String password,
+      ) async {
     try {
       Logger.info('Login attempt: $username');
 
@@ -58,29 +58,42 @@ class ApiService {
         'password': password,
       });
 
-      final response = await _dio.post(AppConstants.loginEndpoint, data: formData);
+      final response = await _retryRequest(
+            () => _dio.post(AppConstants.loginEndpoint, data: formData),
+      );
 
       if (response.statusCode == 200 && response.data != null) {
-        if (response.data['access'] != null && response.data['refresh'] != null) {
-          await _saveTokens(response.data['access'], response.data['refresh']);
+        final data = response.data as Map<String, dynamic>;
+
+        if (data['access'] != null && data['refresh'] != null) {
+          await SecureStorage.saveAccessToken(data['access']);
+          await SecureStorage.saveRefreshToken(data['refresh']);
+          await SecureStorage.setLoggedIn(true);
+
           Logger.success('Login successful');
-          return {'success': true, 'data': response.data};
+          return Result.success(data);
         }
       }
 
-      return {'success': false, 'message': 'Login yoki parol xato'};
-    } catch (e) {
-      Logger.error('Login error: $e');
-      return {'success': false, 'message': 'Serverga ulanishda xatolik'};
+      return Result.failure(
+        ApiError.fromResponse(response.data, response.statusCode),
+      );
+    } on DioException catch (e) {
+      return Result.failure(_handleDioError(e));
+    } catch (e, stackTrace) {
+      Logger.error('Unexpected login error: $e\n$stackTrace');
+      return Result.failure(ApiError.network('Kutilmagan xatolik'));
     }
   }
 
-  Future<Map<String, dynamic>> logMealByFace(
+  /// Face recognition bilan ovqat qaydi - Result pattern
+  Future<Result<Map<String, dynamic>, ApiError>> logMealByFace(
       Uint8List imageBytes,
       String mealType,
       ) async {
     try {
-      Logger.info('Face recognition started: $mealType');
+      final startTime = DateTime.now();
+      Logger.info('⏱️ Face recognition API call started: $mealType');
 
       final apiMealType = AppConstants.mealTypeMap[mealType] ?? 'LUNCH';
 
@@ -93,72 +106,324 @@ class ApiService {
         'meal_type': apiMealType,
       });
 
-      final response = await _dio.post(
-        AppConstants.logMealByFaceEndpoint,
-        data: formData,
-        options: Options(
-          headers: {'Accept': 'application/json'},
-          contentType: 'multipart/form-data',
+      final uploadTime = DateTime.now().difference(startTime).inMilliseconds;
+      Logger.info('⏱️ FormData prepared in ${uploadTime}ms');
+
+      // ✅ Token olish
+      final token = await SecureStorage.getAccessToken();
+
+      final response = await _retryRequest(
+            () => _dio.post(
+          AppConstants.logMealByFaceEndpoint,
+          data: formData,
+          options: Options(
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token', // ✅ token qo‘shildi
+            },
+            contentType: 'multipart/form-data',
+          ),
+        ),
+        maxAttempts: 2, // Face recognition uchun kamroq retry
+      );
+
+      final totalTime = DateTime.now().difference(startTime).inMilliseconds;
+      Logger.success('⏱️ Face recognition completed in ${totalTime}ms');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+
+        return Result.success({
+          'success': data['success'] ?? true,
+          'message': data['message'] ?? AppConstants.errorMessages['SUCCESS'],
+          'student_name': data['student']?['first_name'] ?? 'Student',
+          'data': data,
+        });
+      }
+
+      // Xatolikni handle qilish
+      return Result.failure(
+        ApiError.fromResponse(response.data, response.statusCode),
+      );
+    } on DioException catch (e) {
+      return Result.failure(_handleDioError(e));
+    } catch (e, stackTrace) {
+      Logger.error('Unexpected face recognition error: $e\n$stackTrace');
+      return Result.failure(ApiError.network('Kutilmagan xatolik'));
+    }
+  }
+
+
+  /// Bugungi ovqatlar ro'yxati
+  /// Bugungi ovqatlar ro'yxati
+  Future<Result<List<MealLog>, ApiError>> getTodayMealLogs() async {
+    try {
+      Logger.info('Fetching today meal logs');
+
+      // 🔑 Token olish
+      final token = await SecureStorage.getAccessToken();
+
+      final response = await _retryRequest(
+            () => _dio.get(
+          AppConstants.todayMealsEndpoint,
+          options: Options(
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          ),
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data is List) {
+        final logs = (response.data as List)
+            .map((json) {
+          try {
+            return MealLog.fromJson(json as Map<String, dynamic>);
+          } catch (e) {
+            Logger.error('Failed to parse meal log: $e');
+            return null;
+          }
+        })
+            .whereType<MealLog>()
+            .toList();
+
+        Logger.success('Fetched ${logs.length} meal logs');
+        return Result.success(logs);
+      }
+
+      return Result.failure(
+        ApiError.fromResponse(response.data, response.statusCode),
+      );
+    } on DioException catch (e) {
+      return Result.failure(_handleDioError(e));
+    } catch (e, stackTrace) {
+      Logger.error('Unexpected error fetching meals: $e\n$stackTrace');
+      return Result.failure(ApiError.network('Ma\'lumotlarni yuklashda xatolik'));
+    }
+  }
+
+  /// Kun bo'yicha ovqatlar ro'yxati
+  /// Kun bo'yicha ovqatlar ro'yxati
+  Future<Result<List<MealLog>, ApiError>> getMealsByDate({
+    required DateTime date,
+    String? mealType,
+  }) async {
+    try {
+      final dateStr =
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+      Logger.info('Fetching meals for date: $dateStr');
+
+      final queryParams = <String, dynamic>{'date': dateStr};
+      if (mealType != null) {
+        queryParams['meal_type'] = mealType;
+      }
+
+      // 🔑 Token olish
+      final token = await SecureStorage.getAccessToken();
+
+      final response = await _retryRequest(
+            () => _dio.get(
+          AppConstants.mealsByDateEndpoint,
+          queryParameters: queryParams,
+          options: Options(
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          ),
         ),
       );
 
       if (response.statusCode == 200) {
-        Logger.success('Face recognition successful');
-        return {
-          'success': response.data['success'] ?? true,
-          'message': response.data['message'] ?? 'Muvaffaqiyatli',
-          'student_name': response.data['student']?['first_name'] ?? 'Student',
-          'data': response.data,
-        };
+        final data = response.data;
+
+        if (data is List) {
+          final logs = data
+              .map((json) {
+            try {
+              return MealLog.fromJson(json as Map<String, dynamic>);
+            } catch (e) {
+              Logger.error('Failed to parse meal log: $e');
+              return null;
+            }
+          })
+              .whereType<MealLog>()
+              .toList();
+
+          Logger.success('Fetched ${logs.length} meal logs for $dateStr');
+          return Result.success(logs);
+        }
+
+        if (data is Map<String, dynamic>) {
+          if (data.containsKey('meals') && data['meals'] is List) {
+            final logs = (data['meals'] as List)
+                .map((json) {
+              try {
+                return MealLog.fromJson(json as Map<String, dynamic>);
+              } catch (e) {
+                Logger.error('Failed to parse meal log: $e');
+                return null;
+              }
+            })
+                .whereType<MealLog>()
+                .toList();
+
+            Logger.success('Fetched ${logs.length} meal logs for $dateStr');
+            return Result.success(logs);
+          }
+
+          if (data.containsKey('results') && data['results'] is List) {
+            final logs = (data['results'] as List)
+                .map((json) {
+              try {
+                return MealLog.fromJson(json as Map<String, dynamic>);
+              } catch (e) {
+                Logger.error('Failed to parse meal log: $e');
+                return null;
+              }
+            })
+                .whereType<MealLog>()
+                .toList();
+
+            Logger.success('Fetched ${logs.length} meal logs for $dateStr');
+            return Result.success(logs);
+          }
+
+          if (data.isEmpty) {
+            Logger.info('No meals found for $dateStr');
+            return Result.success([]);
+          }
+
+          try {
+            final log = MealLog.fromJson(data);
+            Logger.success('Fetched 1 meal log for $dateStr');
+            return Result.success([log]);
+          } catch (e) {
+            Logger.error('Failed to parse single meal log: $e');
+            return Result.success([]);
+          }
+        }
+
+        if (data == null) {
+          Logger.info('No meals found for $dateStr');
+          return Result.success([]);
+        }
+
+        Logger.warning('Unexpected response format for meals by date: ${data.runtimeType}');
+        return Result.success([]);
       }
 
-      return {'success': false, 'message': 'Xatolik yuz berdi'};
+      return Result.failure(
+        ApiError.fromResponse(response.data, response.statusCode),
+      );
     } on DioException catch (e) {
-      Logger.error('Face recognition error: ${e.response?.statusCode}');
-
-      if (e.response?.statusCode == 401) {
-        return {'success': false, 'message': 'Iltimos qaytadan kiring'};
-      } else if (e.response?.statusCode == 404) {
-        return {'success': false, 'message': 'Student topilmadi'};
-      } else if (e.response?.statusCode == 409) {
-        return {'success': false, 'message': 'Bugun allaqachon ovqat olgan'};
-      } else if (e.response?.statusCode == 400) {
-        return {'success': false, 'message': 'Yuz aniqlanmadi'};
-      }
-
-      return {'success': false, 'message': 'Serverga ulanishda xatolik'};
-    } catch (e) {
-      Logger.error('Unexpected error: $e');
-      return {'success': false, 'message': 'Kutilmagan xatolik'};
+      return Result.failure(_handleDioError(e));
+    } catch (e, stackTrace) {
+      Logger.error('Unexpected error: $e\n$stackTrace');
+      return Result.failure(ApiError.network('Ma\'lumotlarni yuklashda xatolik'));
     }
   }
 
-  Future<List<MealLog>> getTodayMealLogs() async {
-    try {
-      Logger.info('Fetching today meal logs');
-
-      final response = await _dio.get(AppConstants.todayMealsEndpoint);
-
-      if (response.statusCode == 200 && response.data is List) {
-        final logs = (response.data as List)
-            .map((json) => MealLog.fromJson(json))
-            .toList();
-
-        Logger.success('Fetched ${logs.length} meal logs');
-        return logs;
-      }
-      return [];
-    } catch (e) {
-      Logger.error('Today meals error: $e');
-      return [];
-    }
-  }
-
+  /// Logout
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(AppConstants.accessTokenKey);
-    await prefs.remove(AppConstants.refreshTokenKey);
-    await prefs.setBool(AppConstants.isLoggedInKey, false);
+    await SecureStorage.deleteAllTokens();
     Logger.info('Logged out');
+  }
+
+  /// Login status
+  Future<bool> isLoggedIn() async {
+    return await SecureStorage.isLoggedIn();
+  }
+
+  /// Retry logic - network xatoliklari uchun
+  Future<Response> _retryRequest(
+      Future<Response> Function() request, {
+        int maxAttempts = AppConstants.maxRetryAttempts,
+      }) async {
+    int attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        return await request();
+      } on DioException catch (e) {
+        attempts++;
+
+        final shouldRetry = _shouldRetry(e, attempts, maxAttempts);
+
+        if (!shouldRetry) {
+          rethrow;
+        }
+
+        Logger.warning(
+          'Request failed, retrying... (${attempts}/$maxAttempts)',
+        );
+
+        await Future.delayed(AppConstants.retryDelay * attempts);
+      }
+    }
+
+    throw DioException(
+      requestOptions: RequestOptions(path: ''),
+      error: 'Max retry attempts reached',
+    );
+  }
+
+  /// Retry qilish kerakmi?
+  bool _shouldRetry(DioException error, int attempts, int maxAttempts) {
+    if (attempts >= maxAttempts) return false;
+
+    // Faqat network va timeout xatoliklarda retry qilamiz
+    return error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.receiveTimeout ||
+        error.type == DioExceptionType.connectionError;
+  }
+
+  /// DioException ni ApiError ga o'zgartirish
+  ApiError _handleDioError(DioException e) {
+    Logger.error('DioException: ${e.type} - ${e.message}');
+
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return ApiError.timeout();
+
+      case DioExceptionType.connectionError:
+        return ApiError.network('Internetga ulanishda xatolik');
+
+      case DioExceptionType.badResponse:
+        final statusCode = e.response?.statusCode;
+
+        if (statusCode == 401) {
+          return ApiError.unauthorized();
+        } else if (statusCode == 404) {
+          return ApiError.fromResponse(e.response?.data, statusCode);
+        } else if (statusCode == 409) {
+          return ApiError.fromResponse(e.response?.data, statusCode);
+        } else if (statusCode == 400) {
+          return ApiError.fromResponse(e.response?.data, statusCode);
+        }
+
+        return ApiError.fromResponse(e.response?.data, statusCode);
+
+      default:
+        return ApiError.network('Serverga ulanishda xatolik');
+    }
+  }
+
+  /// Image compression (ixtiyoriy optimizatsiya)
+  Future<Uint8List> _compressImage(Uint8List bytes) async {
+    // Agar rasmning hajmi 1MB dan kichik bo'lsa, compress qilmaslik
+    if (bytes.length < 1024 * 1024) {
+      return bytes;
+    }
+
+    // TODO: image package dan foydalanib compress qilish
+    // Hozircha oddiy return qilamiz
+    Logger.info('Image size: ${(bytes.length / 1024).toStringAsFixed(2)} KB');
+    return bytes;
   }
 }

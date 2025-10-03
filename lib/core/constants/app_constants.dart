@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AppConstants {
-  // API
-  static const String baseUrl = 'http://62.113.58.131:8000';
+  // API - HTTPS ishlatiladi
+  static final String baseUrl = dotenv.env['BASE_URL'] ?? 'https://default-url.com';
   static const String loginEndpoint = '/api/login/';
   static const String logMealByFaceEndpoint = '/api/meals/log-by-face/';
   static const String todayMealsEndpoint = '/api/meals/today/';
+  static const String mealsByDateEndpoint = '/api/meals/by-date/';
 
   // Colors
   static const Color primaryColor = Color(0xFF2A9D8F);
@@ -21,6 +23,13 @@ class AppConstants {
     'kechki_ovqat': 'DINNER',
   };
 
+  // Display names for meal types
+  static const Map<String, String> mealTypeDisplayNames = {
+    'BREAKFAST': 'Nonushta',
+    'LUNCH': 'Tushlik',
+    'DINNER': 'Kechki ovqat',
+  };
+
   // Storage Keys
   static const String accessTokenKey = 'access_token';
   static const String refreshTokenKey = 'refresh_token';
@@ -28,7 +37,7 @@ class AppConstants {
 
   // Assets
   static const String logoPath = 'assets/logo/img.png';
-  static const String successSoundPath = 'sound/successed-295058.mp3';
+  static const String successSoundPath = 'sound/ssss.mp3';
   static const String failedSoundPath = 'sound/failed-295059.mp3';
 
   // Timeouts
@@ -36,12 +45,28 @@ class AppConstants {
   static const Duration receiveTimeout = Duration(seconds: 30);
   static const Duration captureCooldown = Duration(seconds: 3);
 
-  // Face Detection Thresholds
-  static const double minFaceRatio = 0.10;
-  static const double maxFaceRatio = 0.60;
-  static const double centerThreshold = 0.35;
-  static const double maxHeadAngleX = 25.0;
-  static const double maxHeadAngleY = 30.0;
-  static const double maxHeadAngleZ = 25.0;
-  static const double minEyeOpenProbability = 0.5;
+  // Network retry
+  static const int maxRetryAttempts = 3;
+  static const Duration retryDelay = Duration(seconds: 2);
+
+  static const double minFaceRatio = 0.07;   // yuz kichkina bo‘lsa ham qabul qilsin
+  static const double maxFaceRatio = 0.75;   // biroz yaqin ham bo‘lsa qabul qilsin
+  static const double centerThreshold = 0.45; // yuz o‘rtadan 45% chetlashsa ham bo‘lsin
+  static const double maxHeadAngleX = 35.0;
+  static const double maxHeadAngleY = 40.0;
+  static const double maxHeadAngleZ = 35.0;
+  static const double minEyeOpenProbability = 0.3; // yarim ochiq ko‘z ham o‘tsin
+
+
+  // Backend error messages mapping
+  static const Map<String, String> errorMessages = {
+    'NO_FACE': 'Yuz aniqlanmadi',
+    'NO_MATCH': 'Talaba topilmadi',
+    'DB_ERROR': 'Tizim xatosi',
+    'NOT_ACTIVE': 'Talaba faol emas',
+    'NOT_ENROLLED': 'Ro\'yxatdan o\'tmagan',
+    'ALREADY_LOGGED': 'Allaqachon belgilangan',
+    'SUCCESS': 'Muvaffaqiyatli qayd qilindi',
+    'ERROR': 'Xatolik yuz berdi',
+  };
 }

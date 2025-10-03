@@ -215,6 +215,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     };
   }
 
+  // 👇 qo‘shib qo‘ying
   bool _canCapture() {
     if (_lastCaptureTime == null) return true;
     return DateTime.now().difference(_lastCaptureTime!) >
@@ -222,7 +223,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
   }
 
   Future<void> _captureAndSend() async {
-    if (_isProcessing) return;
+    if (_isProcessing || !_canCapture()) return;
 
     setState(() => _isProcessing = true);
     _lastCaptureTime = DateTime.now();
@@ -230,31 +231,48 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     try {
       Logger.info('Capturing image with takePicture');
 
+      // 📸 Kamera orqali rasm olish
       final file = await _controller!.takePicture();
       final jpegBytes = await file.readAsBytes();
 
       Logger.success(
-          'Image captured: ${jpegBytes.length} bytes (${(jpegBytes.length / 1024).toStringAsFixed(2)} KB)');
+        'Image captured: ${jpegBytes.length} bytes '
+        '(${(jpegBytes.length / 1024).toStringAsFixed(2)} KB)',
+      );
 
-      final result =
-      await _apiService.logMealByFace(jpegBytes, widget.mealType);
+      // 🔗 Backendga yuborish
+      final result = await _apiService.logMealByFace(
+        jpegBytes,
+        widget.mealType,
+      );
 
       if (!mounted) return;
 
-      setState(() {
-        _isSuccess = result['success'];
-        _resultMessage = result['message'] ?? 'Xatolik';
-      });
+      // 🔊 Natija bilan ishlash
+      result.when(
+        success: (data) async {
+          setState(() {
+            _isSuccess = data['success'] as bool? ?? false;
+            _resultMessage = data['message'] as String? ?? 'Xatolik';
+          });
 
-      // Play sound
-      if (result['success'] == true) {
-        await AudioService.playSuccess();
-      } else {
-        await AudioService.playFailed();
-      }
+          if (_isSuccess == true) {
+            await AudioService.playSuccess();
+          } else {
+            await AudioService.playFailed();
+          }
+        },
+        failure: (error) async {
+          setState(() {
+            _isSuccess = false;
+            _resultMessage = error.message;
+          });
+          await AudioService.playFailed();
+        },
+      );
 
-      await Future.delayed(const Duration(seconds: 2));
-
+      // ⏳ 3–4 soniyadan keyin statusni tozalash
+      await Future.delayed(const Duration(seconds: 3));
       if (mounted) {
         setState(() {
           _isSuccess = null;
@@ -265,14 +283,12 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
       Logger.error('Capture error: $e');
       if (mounted) {
         await AudioService.playFailed();
-
         setState(() {
           _isSuccess = false;
           _resultMessage = 'Xatolik';
         });
 
-        await Future.delayed(const Duration(seconds: 2));
-
+        await Future.delayed(const Duration(seconds: 3));
         if (mounted) {
           setState(() {
             _isSuccess = null;
@@ -330,9 +346,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     if (!_cameraInitialized) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
@@ -382,11 +396,14 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
           if (_resultMessage != null)
             Center(
               child: Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
                 decoration: BoxDecoration(
-                  color: (_isSuccess! ? Colors.green : Colors.red)
-                      .withOpacity(0.9),
+                  color: (_isSuccess! ? Colors.green : Colors.red).withOpacity(
+                    0.9,
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(

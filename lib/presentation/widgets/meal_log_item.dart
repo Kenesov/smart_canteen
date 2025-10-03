@@ -3,17 +3,27 @@ import '../../data/models/meal_log.dart';
 
 class MealLogItem extends StatelessWidget {
   final MealLog log;
+  final bool showTime;
 
-  const MealLogItem({Key? key, required this.log}) : super(key: key);
+  const MealLogItem({
+    Key? key,
+    required this.log,
+    this.showTime = false,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
         leading: CircleAvatar(
           radius: 30,
           backgroundColor: const Color(0xFF2A9D8F).withOpacity(0.2),
@@ -35,13 +45,50 @@ class MealLogItem extends StatelessWidget {
             fontSize: 16,
           ),
         ),
-        subtitle: Text(
-          '${log.course}-kurs',
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  Icons.school,
+                  size: 16,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '${log.course}-kurs',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                  ),
+                ),
+
+              ],
+            ),
+          ],
         ),
+        trailing: showTime
+            ? Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2A9D8F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            log.formattedTime,
+            style: const TextStyle(
+              color: Color(0xFF2A9D8F),
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        )
+            : null,
       ),
     );
   }
