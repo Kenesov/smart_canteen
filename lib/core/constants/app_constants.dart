@@ -50,14 +50,12 @@ class AppConstants {
   static const int maxRetryAttempts = 3;
   static const Duration retryDelay = Duration(seconds: 2);
 
-  // Face detection settings
-  static const double minFaceRatio = 0.07;
-  static const double maxFaceRatio = 0.75;
-  static const double centerThreshold = 0.45;
-  static const double maxHeadAngleX = 35.0;
-  static const double maxHeadAngleY = 40.0;
-  static const double maxHeadAngleZ = 35.0;
-  static const double minEyeOpenProbability = 0.3;
+  // 1️⃣ Distance Check
+  static const double minFaceRatio = 0.10;
+  static const double maxFaceRatio = 0.60;
+
+  // 2️⃣ Pose Check (30 degrees for both X and Y)
+  static const double maxHeadAngle = 30.0;
 
   // Backend error messages mapping
   static const Map<String, String> errorMessages = {
