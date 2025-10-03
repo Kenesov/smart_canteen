@@ -44,6 +44,9 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
   String? _resultMessage;
   bool? _isSuccess;
 
+  // Frame counter for processing every 3rd frame
+  int _frameCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -55,9 +58,9 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
   void _initializeFaceDetector() {
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
-        enableClassification: true,
+        enableClassification: false,
         enableLandmarks: true,
-        performanceMode: FaceDetectorMode.accurate,
+        performanceMode: FaceDetectorMode.fast,
       ),
     );
     Logger.info('Face detector initialized');
@@ -89,6 +92,10 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
+    // ✅ Process every 3rd frame
+    _frameCount++;
+    if (_frameCount % 3 != 0) return;
+
     if (_isDetecting || _isProcessing) return;
     _isDetecting = true;
 
@@ -158,58 +165,45 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     final imageWidth = image.width.toDouble();
     final imageHeight = image.height.toDouble();
 
-    bool readyToCapture = true;
-    String reason = 'perfect';
-
+    // 1️⃣ DISTANCE CHECK
     final faceArea = boundingBox.width * boundingBox.height;
     final imageArea = imageWidth * imageHeight;
     final faceRatio = faceArea / imageArea;
 
     if (faceRatio < AppConstants.minFaceRatio) {
-      readyToCapture = false;
-      reason = 'too_far';
-    } else if (faceRatio > AppConstants.maxFaceRatio) {
-      readyToCapture = false;
-      reason = 'too_close';
+      return {
+        'showOverlay': true,
+        'readyToCapture': false,
+        'reason': 'too_far'
+      };
     }
 
-    final faceCenterX = boundingBox.center.dx;
-    final faceCenterY = boundingBox.center.dy;
-    final xOffset = (faceCenterX - imageWidth / 2).abs() / imageWidth;
-    final yOffset = (faceCenterY - imageHeight / 2).abs() / imageHeight;
-
-    if (xOffset > AppConstants.centerThreshold ||
-        yOffset > AppConstants.centerThreshold) {
-      readyToCapture = false;
-      reason = 'not_centered';
+    if (faceRatio > AppConstants.maxFaceRatio) {
+      return {
+        'showOverlay': true,
+        'readyToCapture': false,
+        'reason': 'too_close'
+      };
     }
 
+    // 2️⃣ POSE CHECK (Only X and Y angles, 30 degrees max)
     final headEulerAngleX = face.headEulerAngleX?.abs() ?? 0;
     final headEulerAngleY = face.headEulerAngleY?.abs() ?? 0;
-    final headEulerAngleZ = face.headEulerAngleZ?.abs() ?? 0;
 
-    if (headEulerAngleX > AppConstants.maxHeadAngleX ||
-        headEulerAngleY > AppConstants.maxHeadAngleY ||
-        headEulerAngleZ > AppConstants.maxHeadAngleZ) {
-      readyToCapture = false;
-      reason = 'head_tilted';
+    if (headEulerAngleX > AppConstants.maxHeadAngle ||
+        headEulerAngleY > AppConstants.maxHeadAngle) {
+      return {
+        'showOverlay': true,
+        'readyToCapture': false,
+        'reason': 'head_tilted'
+      };
     }
 
-    final leftEyeOpen = face.leftEyeOpenProbability;
-    final rightEyeOpen = face.rightEyeOpenProbability;
-
-    if (leftEyeOpen != null && rightEyeOpen != null) {
-      if (leftEyeOpen < AppConstants.minEyeOpenProbability ||
-          rightEyeOpen < AppConstants.minEyeOpenProbability) {
-        readyToCapture = false;
-        reason = 'eyes_closed';
-      }
-    }
-
+    // ✅ All checks passed
     return {
       'showOverlay': true,
-      'readyToCapture': readyToCapture,
-      'reason': reason,
+      'readyToCapture': true,
+      'reason': 'perfect',
     };
   }
 
@@ -220,7 +214,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
   }
 
   Future<void> _captureAndSend() async {
-    if (_isProcessing || !_canCapture()) return;
+    if (_isProcessing) return;
 
     setState(() => _isProcessing = true);
     _lastCaptureTime = DateTime.now();
@@ -232,40 +226,45 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
       final jpegBytes = await file.readAsBytes();
 
       Logger.success(
-        'Image captured: ${jpegBytes.length} bytes '
-            '(${(jpegBytes.length / 1024).toStringAsFixed(2)} KB)',
-      );
+          'Image captured: ${jpegBytes.length} bytes (${(jpegBytes.length / 1024).toStringAsFixed(2)} KB)');
 
-      final result = await _apiService.logMealByFace(
-        jpegBytes,
-        widget.mealType,
-      );
+      // ✅ Get Result from API
+      final result = await _apiService.logMealByFace(jpegBytes, widget.mealType);
 
       if (!mounted) return;
 
-      result.when(
-        success: (data) async {
-          setState(() {
-            _isSuccess = data['success'] as bool? ?? false;
-            _resultMessage = data['message'] as String? ?? 'Xatolik';
-          });
+      // ✅ Handle Result type properly
+      if (result.isSuccess) {
+        // Success case - unwrap the value
+        final data = result.value;
 
-          if (_isSuccess == true) {
-            await AudioService.playSuccess();
-          } else {
-            await AudioService.playFailed();
-          }
-        },
-        failure: (error) async {
-          setState(() {
-            _isSuccess = false;
-            _resultMessage = error.message;
-          });
+        setState(() {
+          _isSuccess = data['success'] as bool?;
+          _resultMessage = data['message'] as String? ?? 'Muvaffaqiyatli';
+        });
+
+        // Play sound based on API response
+        if (data['success'] == true) {
+          await AudioService.playSuccess();
+        } else {
           await AudioService.playFailed();
-        },
-      );
+        }
+      } else {
+        // Error case - unwrap the error
+        final error = result.error;
 
-      await Future.delayed(const Duration(seconds: 3));
+        setState(() {
+          _isSuccess = false;
+          _resultMessage = error.message;
+        });
+
+        await AudioService.playFailed();
+        Logger.error('API Error: ${error.message}');
+      }
+
+      // Show message for 2 seconds
+      await Future.delayed(const Duration(seconds: 2));
+
       if (mounted) {
         setState(() {
           _isSuccess = null;
@@ -278,10 +277,11 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         await AudioService.playFailed();
         setState(() {
           _isSuccess = false;
-          _resultMessage = 'Xatolik';
+          _resultMessage = 'Xatolik yuz berdi';
         });
 
-        await Future.delayed(const Duration(seconds: 3));
+        await Future.delayed(const Duration(seconds: 2));
+
         if (mounted) {
           setState(() {
             _isSuccess = null;
@@ -353,7 +353,9 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     if (!_cameraInitialized) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
       );
     }
 
@@ -400,13 +402,15 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
 
           // Face overlay
           if (_shouldShowOverlay && _faceRect != null && _imageSize != null)
-            CustomPaint(
-              painter: FaceCircleOverlay(
-                faceRect: _faceRect!,
-                imageSize: _imageSize!,
-                previewSize: _controller!.value.previewSize!,
-                cameraLensDirection: widget.camera.lensDirection,
-                isCorrect: _isFaceCorrect,
+            RepaintBoundary( //
+              child: CustomPaint(
+                painter: FaceCircleOverlay(
+                  faceRect: _faceRect!,
+                  imageSize: _imageSize!,
+                  previewSize: _controller!.value.previewSize!,
+                  cameraLensDirection: widget.camera.lensDirection,
+                  isCorrect: _isFaceCorrect,
+                ),
               ),
             ),
 
@@ -414,14 +418,11 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
           if (_resultMessage != null)
             Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
-                ),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 decoration: BoxDecoration(
-                  color: (_isSuccess! ? Colors.green : Colors.red).withOpacity(
-                    0.9,
-                  ),
+                  color: (_isSuccess! ? Colors.green : Colors.red)
+                      .withOpacity(0.9),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
