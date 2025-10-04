@@ -129,17 +129,20 @@ class ApiService {
       final totalTime = DateTime.now().difference(startTime).inMilliseconds;
       Logger.success('⏱️ Face recognition completed in ${totalTime}ms');
 
-      if (response.statusCode == 200) {
+      // Handle both success and expected error responses (they all return valid JSON with student data)
+      if (response.statusCode == 200 ||
+          response.statusCode == 400 ||
+          response.statusCode == 403 ||
+          response.statusCode == 404 ||
+          response.statusCode == 409) {
         final data = response.data as Map<String, dynamic>;
 
-        return Result.success({
-          'success': data['success'] ?? true,
-          'message': data['message'] ?? AppConstants.errorMessages['SUCCESS'],
-          'student_name': data['student']?['first_name'] ?? 'Student',
-          'data': data,
-        });
+        // Return the full API response including student object
+        // The 'success' field in the data will indicate if it was actually successful
+        return Result.success(data);
       }
 
+      // Only treat unexpected errors (500s, etc.) as failures
       return Result.failure(
         ApiError.fromResponse(response.data, response.statusCode),
       );
