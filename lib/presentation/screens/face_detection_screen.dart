@@ -43,6 +43,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
 
   String? _resultMessage;
   bool? _isSuccess;
+  String? _studentName;
+  String? _studentPinfl;
 
   // Frame counter for processing every 3rd frame
   int _frameCount = 0;
@@ -241,6 +243,16 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         setState(() {
           _isSuccess = data['success'] as bool?;
           _resultMessage = data['message'] as String? ?? 'Muvaffaqiyatli';
+
+          // Extract student info if available
+          if (data['student'] != null) {
+            final student = data['student'] as Map<String, dynamic>;
+            _studentName = student['name'] as String?;
+            _studentPinfl = student['pinfl'] as String?;
+          } else {
+            _studentName = null;
+            _studentPinfl = null;
+          }
         });
 
         // Play sound based on API response
@@ -256,6 +268,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         setState(() {
           _isSuccess = false;
           _resultMessage = error.message;
+          _studentName = null;
+          _studentPinfl = null;
         });
 
         await AudioService.playFailed();
@@ -269,6 +283,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         setState(() {
           _isSuccess = null;
           _resultMessage = null;
+          _studentName = null;
+          _studentPinfl = null;
         });
       }
     } catch (e) {
@@ -278,6 +294,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
         setState(() {
           _isSuccess = false;
           _resultMessage = 'Xatolik yuz berdi';
+          _studentName = null;
+          _studentPinfl = null;
         });
 
         await Future.delayed(const Duration(seconds: 2));
@@ -286,6 +304,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
           setState(() {
             _isSuccess = null;
             _resultMessage = null;
+            _studentName = null;
+            _studentPinfl = null;
           });
         }
       }
@@ -465,30 +485,108 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
           if (_resultMessage != null)
             Center(
               child: Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: (_isSuccess! ? Colors.green : Colors.red)
-                      .withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(12),
+                      .withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: Row(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      _isSuccess! ? Icons.check_circle : Icons.error,
-                      color: Colors.white,
-                      size: 32,
+                    // Icon and main message
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isSuccess! ? Icons.check_circle : Icons.error,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            _resultMessage!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _resultMessage!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+
+                    // Student info (if available)
+                    if (_studentName != null || _studentPinfl != null) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          children: [
+                            if (_studentName != null)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.person,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      _studentName!,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (_studentName != null && _studentPinfl != null)
+                              const SizedBox(height: 8),
+                            if (_studentPinfl != null)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.badge,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _studentPinfl!,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w500,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
