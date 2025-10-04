@@ -9,8 +9,8 @@ import '../../core/utils/logger.dart';
 import '../../data/services/api_service.dart';
 import '../../data/services/audio_service.dart';
 import '../widgets/face_overlay.dart';
-import '../widgets/scan_mode_menu.dart'; // Menu widget
-import 'qr_scanner_screen.dart'; // QR screen import
+import '../widgets/scan_mode_menu.dart';
+import 'qr_scanner_screen.dart';
 
 class FaceDetectionScreen extends StatefulWidget {
   final CameraDescription camera;
@@ -69,7 +69,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
   Future<void> _initializeCamera() async {
     _controller = CameraController(
       widget.camera,
-      ResolutionPreset.high,
+      ResolutionPreset.ultraHigh,
       enableAudio: false,
     );
 
@@ -296,7 +296,6 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
     }
   }
 
-  // QR screenga o'tish
   void _navigateToQrScreen() {
     Logger.info('Switching to QR Scanner');
     Navigator.pushReplacement(
@@ -304,7 +303,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
       MaterialPageRoute(
         builder: (context) => QrScannerScreen(
           mealType: widget.mealType,
-          camera: widget.camera, // Kamerani uzatish
+          camera: widget.camera,
         ),
       ),
     );
@@ -395,14 +394,14 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
             right: 20,
             child: ScanModeMenu(
               currentMode: ScanMode.face,
-              onFaceTap: () {}, // Allaqachon Face ekranida
+              onFaceTap: () {},
               onQrTap: _navigateToQrScreen,
             ),
           ),
 
           // Face overlay
           if (_shouldShowOverlay && _faceRect != null && _imageSize != null)
-            RepaintBoundary( //
+            RepaintBoundary(
               child: CustomPaint(
                 painter: FaceCircleOverlay(
                   faceRect: _faceRect!,
@@ -410,6 +409,54 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen> {
                   previewSize: _controller!.value.previewSize!,
                   cameraLensDirection: widget.camera.lensDirection,
                   isCorrect: _isFaceCorrect,
+                ),
+              ),
+            ),
+
+          // Loading indicator (shown while processing)
+          if (_isProcessing && _resultMessage == null)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      strokeWidth: 4,
+                    ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Column(
+                        children: [
+                          Text(
+                            'Iltimos, kuting...',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Kameraga qarang',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
